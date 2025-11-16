@@ -7,7 +7,7 @@ import { ORIENTATION } from "./types";
 import { addUser, updateUser, userStore } from "./store";
 
 let tripSetup: IOrientationSetup = {
-    [ORIENTATION.GO]: ['17/11/2023','18/11/2023'], //
+    [ORIENTATION.GO]: ['24/12/2025','25/12/2025'], //
     [ORIENTATION.BACK]: [], //
 }
 let tripSetupExcludeTime: IOrientationSetup = {

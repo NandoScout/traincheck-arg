@@ -1,5 +1,6 @@
 import * as cron from 'node-cron';
 import { getAllPassages, sendServicesInfo, setSessionId } from './utils';
+import './bot'; // Initialize bot
 
 // Function to check the website and send a message if content is found
 const checkWebsiteAndSendMessage = async () => {

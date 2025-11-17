@@ -7,7 +7,7 @@ import { ORIENTATION } from "./types";
 import { addUser, updateUser, userStore } from "./store";
 
 let tripSetup: IOrientationSetup = {
-    [ORIENTATION.GO]: ['24/12/2025','25/12/2025'], //
+    [ORIENTATION.GO]: ['24/11/2025','25/11/2025'], //
     [ORIENTATION.BACK]: [], //
 }
 let tripSetupExcludeTime: IOrientationSetup = {
@@ -45,6 +45,214 @@ export const tripSetupReadable = () => {
 
 export const orientationToString = (orient) => {
     return orient === ORIENTATION.GO ? 'ida' : 'vuelta';
+}
+
+// Funciones para gestionar fechas
+export const getDates = (orientation: ORIENTATION): string[] => {
+    const dates = tripSetup[orientation];
+    if (!dates) return [];
+    // Asegurar que siempre retornamos string[]
+    return dates.map(d => typeof d === 'string' ? d : d.toString());
+}
+
+export const addDate = (orientation: ORIENTATION, date: string): boolean => {
+    if (!tripSetup[orientation]) {
+        tripSetup[orientation] = [];
+    }
+    const dates = tripSetup[orientation] as string[];
+    
+    // Si la fecha viene sin año (DD/MM), agregar el año actual
+    let finalDate = date;
+    if (/^\d{2}\/\d{2}$/.test(date)) {
+        const currentYear = new Date().getFullYear();
+        finalDate = `${date}/${currentYear}`;
+    }
+    
+    // Validar formato de fecha (DD/MM/YYYY)
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(finalDate)) {
+        return false;
+    }
+    // Evitar duplicados
+    if (!dates.includes(finalDate)) {
+        dates.push(finalDate);
+        return true;
+    }
+    return false;
+}
+
+export const removeDate = (orientation: ORIENTATION, date: string): boolean => {
+    if (!tripSetup[orientation]) {
+        return false;
+    }
+    const dates = tripSetup[orientation] as string[];
+    const index = dates.indexOf(date);
+    if (index > -1) {
+        dates.splice(index, 1);
+        return true;
+    }
+    return false;
+}
+
+export const clearAllDates = (orientation: ORIENTATION): void => {
+    tripSetup[orientation] = [];
+}
+
+export const getDatesFormatted = (orientation: ORIENTATION): string => {
+    const dates = getDates(orientation);
+    if (dates.length === 0) {
+        return `No hay fechas de ${orientationToString(orientation)} configuradas.`;
+    }
+    return `Fechas de ${orientationToString(orientation)}:\n${dates.map((d, i) => `${i + 1}. ${d}`).join('\n')}`;
+}
+
+// Funciones para gestionar fechas por usuario
+export const getUserDates = (userId: number, orientation: ORIENTATION): string[] => {
+    const user = userStore[userId];
+    if (!user?.trip?.orientationDate?.[orientation]) {
+        return [];
+    }
+    const dates = user.trip.orientationDate[orientation];
+    if (!dates) {
+        return [];
+    }
+    return dates.map(d => typeof d === 'string' ? d : d.toString());
+}
+
+export const addUserDate = (userId: number, orientation: ORIENTATION, date: string): boolean => {
+    if (!userStore[userId]) {
+        userStore[userId] = { id: userId, trip: { orientationDate: {}, excludeTime: {}, includeTime: {} } };
+    }
+    const user = userStore[userId];
+    if (!user.trip) {
+        user.trip = { orientationDate: {}, excludeTime: {}, includeTime: {} };
+    }
+    if (!user.trip.orientationDate) {
+        user.trip.orientationDate = {};
+    }
+    if (!user.trip.orientationDate[orientation]) {
+        user.trip.orientationDate[orientation] = [];
+    }
+    
+    const dates = user.trip.orientationDate[orientation] as string[];
+    
+    // Si la fecha viene sin año (DD/MM), agregar el año actual
+    let finalDate = date;
+    if (/^\d{2}\/\d{2}$/.test(date)) {
+        const currentYear = new Date().getFullYear();
+        finalDate = `${date}/${currentYear}`;
+    }
+    
+    // Validar formato de fecha (DD/MM/YYYY)
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(finalDate)) {
+        return false;
+    }
+    // Evitar duplicados
+    if (!dates.includes(finalDate)) {
+        dates.push(finalDate);
+        updateUser(userStore[userId]);
+        return true;
+    }
+    return false;
+}
+
+export const removeUserDate = (userId: number, orientation: ORIENTATION, date: string): boolean => {
+    const user = userStore[userId];
+    if (!user?.trip?.orientationDate?.[orientation]) {
+        return false;
+    }
+    const dates = user.trip.orientationDate[orientation] as string[];
+    
+    // Si la fecha viene sin año, buscar con año actual también
+    let searchDate = date;
+    if (/^\d{2}\/\d{2}$/.test(date)) {
+        const currentYear = new Date().getFullYear();
+        searchDate = `${date}/${currentYear}`;
+    }
+    
+    const index = dates.indexOf(searchDate);
+    if (index > -1) {
+        dates.splice(index, 1);
+        updateUser(user);
+        return true;
+    }
+    return false;
+}
+
+export const clearAllUserDates = (userId: number, orientation: ORIENTATION): void => {
+    const user = userStore[userId];
+    if (!user?.trip?.orientationDate) {
+        return;
+    }
+    user.trip.orientationDate[orientation] = [];
+    updateUser(user);
+}
+
+export const getUserDatesFormatted = (userId: number, orientation: ORIENTATION): string => {
+    const dates = getUserDates(userId, orientation);
+    if (dates.length === 0) {
+        return `No hay fechas de ${orientationToString(orientation)} configuradas.`;
+    }
+    return `Fechas de ${orientationToString(orientation)}:\n${dates.map((d, i) => `${i + 1}. ${d}`).join('\n')}`;
+}
+
+// Función para obtener la configuración completa del usuario formateada
+export const getUserConfigFormatted = (userId: number): string => {
+    const user = userStore[userId];
+    if (!user) {
+        return 'No hay configuración para este usuario.';
+    }
+    
+    const lines: string[] = [];
+    lines.push('📋 **Configuración Actual**\n');
+    
+    // Origen y Destino
+    if (user.trip?.source || user.trip?.destination) {
+        lines.push('📍 **Estaciones:**');
+        if (user.trip.source) {
+            lines.push(`   Origen: ${user.trip.source.name} (${user.trip.source.code})`);
+        } else {
+            lines.push(`   Origen: No configurado`);
+        }
+        if (user.trip.destination) {
+            lines.push(`   Destino: ${user.trip.destination.name} (${user.trip.destination.code})`);
+        } else {
+            lines.push(`   Destino: No configurado`);
+        }
+        lines.push('');
+    }
+    
+    // Fechas de ida
+    const goDates = getUserDates(userId, ORIENTATION.GO);
+    if (goDates.length > 0) {
+        lines.push(`🚂 **Fechas de Ida (${goDates.length}):**`);
+        goDates.forEach((d, i) => {
+            lines.push(`   ${i + 1}. ${d}`);
+        });
+        lines.push('');
+    } else {
+        lines.push('🚂 **Fechas de Ida:** No configuradas\n');
+    }
+    
+    // Fechas de vuelta
+    const backDates = getUserDates(userId, ORIENTATION.BACK);
+    if (backDates.length > 0) {
+        lines.push(`🚂 **Fechas de Vuelta (${backDates.length}):**`);
+        backDates.forEach((d, i) => {
+            lines.push(`   ${i + 1}. ${d}`);
+        });
+        lines.push('');
+    } else {
+        lines.push('🚂 **Fechas de Vuelta:** No configuradas\n');
+    }
+    
+    // Token
+    if (user.token) {
+        lines.push(`🔑 **Token:** Configurado`);
+    } else {
+        lines.push(`🔑 **Token:** No configurado`);
+    }
+    
+    return lines.join('\n');
 }
 
 export const formatObject = (obj) => {
@@ -265,11 +473,31 @@ export const getAllPassages = async() => {
     .then(services => storeLastServices(currentUser, services))
 }
 
+// Sistema de caché para evitar consultas duplicadas
+const passageCache: Record<string, Promise<any>> = {};
+const CACHE_TTL = 30000; // 30 segundos
+const cacheTimestamps: Record<string, number> = {};
+
+const getCacheKey = (date: string, orientation: ORIENTATION): string => {
+    return `${date}_${orientation}`;
+}
+
 export const getPassages = async (date, orientation:ORIENTATION) => {
     if (phpSessionId === '') { 
         await askSessionId(); 
         return;
     }
+    
+    const cacheKey = getCacheKey(date, orientation);
+    const now = Date.now();
+    
+    // Si hay una consulta en curso para esta fecha/sentido, reutilizarla
+    if (cacheKey in passageCache && cacheTimestamps[cacheKey] && (now - cacheTimestamps[cacheKey]) < CACHE_TTL) {
+        console.log(`Reutilizando consulta en caché para ${date} ${orientationToString(orientation)}`);
+        return passageCache[cacheKey];
+    }
+    
+    // Crear nueva consulta
     const headers = {
         Dnt: 1,
         Cookie: `PHPSESSID=${phpSessionId}`,
@@ -280,7 +508,7 @@ export const getPassages = async (date, orientation:ORIENTATION) => {
     payload.append('fecha_seleccionada', date);
     payload.append('sentido', orientation);
     
-    return axios
+    const promise = axios
     .post(SOFSE_URL, payload, { 
         headers:{
             ...headers,
@@ -299,11 +527,20 @@ export const getPassages = async (date, orientation:ORIENTATION) => {
     })
     .catch((error) => {
         console.error('Error getting passage info:', error.message);
+        // Limpiar caché en caso de error
+        delete passageCache[cacheKey];
+        delete cacheTimestamps[cacheKey];
         throw error;
     });
+    
+    // Guardar en caché
+    passageCache[cacheKey] = promise;
+    cacheTimestamps[cacheKey] = now;
+    
+    return promise;
 }
 
-export const sendServicesInfo = async (services?: ServiceObject, prefix= '', suffix= '', showAll=false) => {
+export const sendServicesInfo = async (services?: ServiceObject, prefix= '', suffix= '', showAll=false, chatId?: string | number) => {
     
     const message = prefix + 
         ((services === undefined) 
@@ -314,17 +551,95 @@ export const sendServicesInfo = async (services?: ServiceObject, prefix= '', suf
     + suffix;
 
     console.log(message);
-    sendTelegramMessage(message);
+    sendTelegramMessage(message, chatId);
     await sleep(100);
     Object.entries(services?.data || {}).forEach(([k,v]:any[]) => { 
       if (k !== 'disponibilidad') {
         const key = k;
         v.forEach(v1 => {
           if (showAll || v1.disponibilidad) {
-            sendTelegramMessage(`${formatObject({[key]:v1})}`); 
+            sendTelegramMessage(`${formatObject({[key]:v1})}`, chatId); 
           }
         });
       }
     })
     // Object.entries(freeFound).forEach(s => sendTelegramMessage(`${s[0]}:\n${JSON.stringify(s[1])}`.replace(/fecha_estacion":|hora_estacion":|"/g,'').replace(/,/g,'\n')))
+}
+
+// Función para obtener pasajes de un usuario específico
+export const getUserPassages = async (userId: number) => {
+    const user = userStore[userId];
+    if (!user?.trip?.orientationDate) {
+        return null;
+    }
+    
+    const requests: any[] = [];
+    const orientationDate = user.trip.orientationDate;
+    
+    if (orientationDate[ORIENTATION.GO]?.length) {
+        requests.push(...(orientationDate[ORIENTATION.GO] as string[]).map(t => getPassages(t, ORIENTATION.GO)));
+    }
+    if (orientationDate[ORIENTATION.BACK]?.length) {
+        requests.push(...(orientationDate[ORIENTATION.BACK] as string[]).map(t => getPassages(t, ORIENTATION.BACK)));
+    }
+    
+    if (requests.length === 0) {
+        return null;
+    }
+    
+    // Usar la configuración del usuario para filtrar
+    const userTripSetup = orientationDate;
+    const userTripSetupExcludeTime = user.trip.excludeTime || {};
+    const userTripSetupIncludeTime = user.trip.includeTime || {};
+    
+    return Promise.allSettled(requests)
+    .then(result => {
+        // join GO and BACK responses
+        return result.reduce((pre,curr:any) => {
+            if (curr.status === 'fulfilled') {
+                curr.value.data.servicios = Object.assign(pre?.data?.servicios || {},curr.value.data.servicios);
+                return curr.value;
+            }
+            return pre;
+        }, {} as any)
+    })
+    .then(result => {
+        // Aplicar filtros del usuario
+        const tempTripSetup = tripSetup;
+        const tempTripSetupExcludeTime = tripSetupExcludeTime;
+        const tempTripSetupIncludeTime = tripSetupIncludeTime;
+        
+        tripSetup = userTripSetup;
+        tripSetupExcludeTime = userTripSetupExcludeTime;
+        tripSetupIncludeTime = userTripSetupIncludeTime;
+        
+        const formatted = formatServicesResponse(result.data);
+        
+        // Restaurar configuración global
+        tripSetup = tempTripSetup;
+        tripSetupExcludeTime = tempTripSetupExcludeTime;
+        tripSetupIncludeTime = tempTripSetupIncludeTime;
+        
+        return formatted;
+    })
+    .then(services => {
+        storeLastServices(user, services);
+        return services;
+    });
+}
+
+// Función para consultar y notificar a todos los usuarios
+export const checkAndNotifyAllUsers = async () => {
+    const userIds = Object.keys(userStore).map(id => parseInt(id, 10));
+    
+    for (const userId of userIds) {
+        try {
+            const services = await getUserPassages(userId);
+            if (services?.disponibilidad) {
+                await sendServicesInfo(services, `Pasajes disponibles para tu consulta:\n`, '', false, userId);
+            }
+        } catch (error) {
+            console.error(`Error checking passages for user ${userId}:`, error);
+        }
+    }
 }

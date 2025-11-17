@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters'
-import { sendServicesInfo, setSessionId } from './utils';
+import { sendServicesInfo, setSessionId, getDatesFormatted, addDate, removeDate, clearAllDates, getDates, getUserDatesFormatted, addUserDate, removeUserDate, clearAllUserDates, getUserDates, getUserConfigFormatted } from './utils';
 import { addUser, userStore } from './store';
+import { ORIENTATION } from './types';
 
 // Replace 'YOUR_BOT_TOKEN' with your actual Telegram Bot API token
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -16,6 +17,9 @@ export let lastUserId = 0;
 // Store the current menu level for each user
 const userMenuLevels: Record<number, MenuLevel> = {};
 
+// Store the current action state for each user (for date input)
+const userActionState: Record<number, { action: string, orientation: ORIENTATION } | null> = {};
+
 
 // bot.on('message',(message) => {
 //     console.log('Telegram Message received:', message.text);
@@ -27,14 +31,15 @@ const userMenuLevels: Record<number, MenuLevel> = {};
 // })
 
 
-export function sendTelegramMessage(message: string) {
+export function sendTelegramMessage(message: string, chatId?: string | number) {
     // Send a message to the Telegram chat
+    const targetChatId = chatId || TELEGRAM_CHAT_ID;
     if (bot) {
-        bot.telegram.sendMessage(TELEGRAM_CHAT_ID as string, message);
+        bot.telegram.sendMessage(targetChatId as string, message);
     } else {
         const telegramApiUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
         const payload = {
-          chat_id: TELEGRAM_CHAT_ID,
+          chat_id: targetChatId,
           text: message,
         };
       
@@ -105,6 +110,8 @@ enum MenuLevel {
   MAIN_MENU,
   SUBMENU_GO,
   SUBMENU_BACK,
+  MANAGE_GO_DATES,
+  MANAGE_BACK_DATES,
   // Add more menu levels as needed
 }
 
@@ -114,18 +121,28 @@ const submenu = (level: MenuLevel) => `go_${level}`;
 const menus: Record<MenuLevel, any> = {
   [MenuLevel.MAIN_MENU]: {
     text: `Menu Principal\nGestione su consulta de pasajes`,
-    options: ['last', 'set_token', [submenu(MenuLevel.SUBMENU_GO), submenu(MenuLevel.SUBMENU_BACK)]],
-    optionsText: ['Última info', 'Actualizar token', ['Ida', 'Vuelta']],
+    options: [['last', 'view_config'], 'set_token', [submenu(MenuLevel.SUBMENU_GO), submenu(MenuLevel.SUBMENU_BACK)]],
+    optionsText: [['Última info', 'Ver configuración'], 'Actualizar token', ['Ida', 'Vuelta']],
   },
   [MenuLevel.SUBMENU_GO]: {
     text: '**Menu Pasajes Ida**',
-    options: [['view_go_dates','set_go_dates'], submenu(MenuLevel.MAIN_MENU)],
-    optionsText: [['Ver', 'Actualizar'], 'Volver'],
+    options: [['view_go_dates','manage_go_dates'], submenu(MenuLevel.MAIN_MENU)],
+    optionsText: [['Ver', 'Gestionar'], 'Volver'],
   },
   [MenuLevel.SUBMENU_BACK]: {
     text: '**Menu Pasajes Vuelta**',
-    options: [['view_back_dates','set_back_dates'], submenu(MenuLevel.MAIN_MENU)],
-    optionsText: [['Ver', 'Actualizar'], 'Volver'],
+    options: [['view_back_dates','manage_back_dates'], submenu(MenuLevel.MAIN_MENU)],
+    optionsText: [['Ver', 'Gestionar'], 'Volver'],
+  },
+  [MenuLevel.MANAGE_GO_DATES]: {
+    text: '**Gestionar Fechas de Ida**\nSeleccione una opción:',
+    options: [['add_go_date', 'remove_go_date', 'clear_go_dates'], submenu(MenuLevel.SUBMENU_GO)],
+    optionsText: [['Agregar', 'Eliminar', 'Borrar todas'], 'Volver'],
+  },
+  [MenuLevel.MANAGE_BACK_DATES]: {
+    text: '**Gestionar Fechas de Vuelta**\nSeleccione una opción:',
+    options: [['add_back_date', 'remove_back_date', 'clear_back_dates'], submenu(MenuLevel.SUBMENU_BACK)],
+    optionsText: [['Agregar', 'Eliminar', 'Borrar todas'], 'Volver'],
   },
   // Add more menu levels and options as needed
 };
@@ -252,9 +269,12 @@ function handleMenuNavigation(ctx) {
     const chatId = ctx.chat?.id || 0;
     const option = ctx.callbackQuery.data.split('_')
     if (option[0] === 'go') {
-        userMenuLevels[chatId] = option[1] as MenuLevel;
-        showMenu(ctx);
-        return true;
+        const level = parseInt(option[1], 10);
+        if (!isNaN(level) && level in MenuLevel) {
+            userMenuLevels[chatId] = level as MenuLevel;
+            showMenu(ctx);
+            return true;
+        }
     }
     return false;
 }
@@ -265,6 +285,11 @@ function handleMainMenuInput(ctx) {
     switch (option.data) {
       case 'last':
         cmdLast(ctx)
+        break;
+      case 'view_config':
+        const config = getUserConfigFormatted(chatId);
+        ctx.reply(config, { parse_mode: 'Markdown' })
+          .catch(error => ctx.reply(error.toString()));
         break;
     
       default:
@@ -277,26 +302,163 @@ function handleMainMenuInput(ctx) {
 function handleSubmenu1Input(ctx) {
     const chatId = ctx.chat?.id || 0;
     const option = ctx.callbackQuery;
-    // Handle other options in submenu 1
-    ctx.answerCbQuery(`You selected: ${option.data}`)
-    .catch(error => ctx.reply(error.toString()))
+    // Handle options in submenu GO (Ida)
+    switch (option.data) {
+      case 'view_go_dates':
+        const goDates = getUserDatesFormatted(chatId, ORIENTATION.GO);
+        ctx.reply(goDates)
+          .catch(error => ctx.reply(error.toString()));
+        break;
+      case 'manage_go_dates':
+        userMenuLevels[chatId] = MenuLevel.MANAGE_GO_DATES;
+        showMenu(ctx);
+        break;
+      default:
+        ctx.answerCbQuery(`You selected: ${option.data}`)
+          .catch(error => ctx.reply(error.toString()));
+        break;
+    }
 }
 
 function handleSubmenu2Input(ctx) {
     const chatId = ctx.chat?.id || 0;
     const option = ctx.callbackQuery;
-    // Handle other options in submenu 2
-    ctx.answerCbQuery(`You selected: ${option.data}`)
-    .catch(error => ctx.reply(error.toString()))
+    // Handle options in submenu BACK (Vuelta)
+    switch (option.data) {
+      case 'view_back_dates':
+        const backDates = getUserDatesFormatted(chatId, ORIENTATION.BACK);
+        ctx.reply(backDates)
+          .catch(error => ctx.reply(error.toString()));
+        break;
+      case 'manage_back_dates':
+        userMenuLevels[chatId] = MenuLevel.MANAGE_BACK_DATES;
+        showMenu(ctx);
+        break;
+      default:
+        ctx.answerCbQuery(`You selected: ${option.data}`)
+          .catch(error => ctx.reply(error.toString()));
+        break;
+    }
+}
+
+function handleManageGoDatesInput(ctx) {
+    const chatId = ctx.chat?.id || 0;
+    const option = ctx.callbackQuery;
+    
+    switch (option.data) {
+      case 'add_go_date':
+        userActionState[chatId] = { action: 'add', orientation: ORIENTATION.GO };
+        ctx.reply('Por favor, envíe la fecha en formato DD/MM/YYYY o DD/MM (ejemplo: 24/11/2025 o 24/11)')
+          .catch(error => ctx.reply(error.toString()));
+        break;
+      case 'remove_go_date':
+        const goDatesList = getUserDates(chatId, ORIENTATION.GO);
+        if (goDatesList.length === 0) {
+          ctx.reply('No hay fechas de ida para eliminar.')
+            .catch(error => ctx.reply(error.toString()));
+        } else {
+          userActionState[chatId] = { action: 'remove', orientation: ORIENTATION.GO };
+          ctx.reply(`Fechas actuales:\n${goDatesList.map((d, i) => `${i + 1}. ${d}`).join('\n')}\n\nPor favor, envíe la fecha que desea eliminar (formato: DD/MM/YYYY o DD/MM)`)
+            .catch(error => ctx.reply(error.toString()));
+        }
+        break;
+      case 'clear_go_dates':
+        clearAllUserDates(chatId, ORIENTATION.GO);
+        ctx.reply('Todas las fechas de ida han sido eliminadas.')
+          .catch(error => ctx.reply(error.toString()));
+        userMenuLevels[chatId] = MenuLevel.SUBMENU_GO;
+        showMenu(ctx);
+        break;
+      default:
+        ctx.answerCbQuery(`You selected: ${option.data}`)
+          .catch(error => ctx.reply(error.toString()));
+        break;
+    }
+}
+
+function handleManageBackDatesInput(ctx) {
+    const chatId = ctx.chat?.id || 0;
+    const option = ctx.callbackQuery;
+    
+    switch (option.data) {
+      case 'add_back_date':
+        userActionState[chatId] = { action: 'add', orientation: ORIENTATION.BACK };
+        ctx.reply('Por favor, envíe la fecha en formato DD/MM/YYYY o DD/MM (ejemplo: 24/11/2025 o 24/11)')
+          .catch(error => ctx.reply(error.toString()));
+        break;
+      case 'remove_back_date':
+        const backDatesList = getUserDates(chatId, ORIENTATION.BACK);
+        if (backDatesList.length === 0) {
+          ctx.reply('No hay fechas de vuelta para eliminar.')
+            .catch(error => ctx.reply(error.toString()));
+        } else {
+          userActionState[chatId] = { action: 'remove', orientation: ORIENTATION.BACK };
+          ctx.reply(`Fechas actuales:\n${backDatesList.map((d, i) => `${i + 1}. ${d}`).join('\n')}\n\nPor favor, envíe la fecha que desea eliminar (formato: DD/MM/YYYY o DD/MM)`)
+            .catch(error => ctx.reply(error.toString()));
+        }
+        break;
+      case 'clear_back_dates':
+        clearAllUserDates(chatId, ORIENTATION.BACK);
+        ctx.reply('Todas las fechas de vuelta han sido eliminadas.')
+          .catch(error => ctx.reply(error.toString()));
+        userMenuLevels[chatId] = MenuLevel.SUBMENU_BACK;
+        showMenu(ctx);
+        break;
+      default:
+        ctx.answerCbQuery(`You selected: ${option.data}`)
+          .catch(error => ctx.reply(error.toString()));
+        break;
+    }
 }
 
 bot.on(message('text'), async (ctx) => {
-  // Explicit usage
-//   await ctx.telegram.sendMessage(ctx.message.chat.id, `Hello ${ctx.state.role}`)
-
-  // Using context shortcut
- ctx.reply(`Hello ${(ctx?.chat as any)?.first_name}`)
- .catch(error => ctx.reply(error.toString()))
+  const chatId = ctx.message.chat.id;
+  const text = ctx.message.text;
+  
+  // Check if user is in an action state (adding or removing dates)
+  const actionState = userActionState[chatId];
+  if (actionState) {
+    const { action, orientation } = actionState;
+    
+    if (action === 'add') {
+      const success = addUserDate(chatId, orientation, text);
+      if (success) {
+        // Obtener la fecha final (puede haber sido completada con el año)
+        const dates = getUserDates(chatId, orientation);
+        const addedDate = dates[dates.length - 1];
+        ctx.reply(`Fecha ${addedDate} agregada correctamente.`)
+          .catch(error => ctx.reply(error.toString()));
+        userActionState[chatId] = null;
+        // Volver al menú de gestión
+        userMenuLevels[chatId] = orientation === ORIENTATION.GO 
+          ? MenuLevel.MANAGE_GO_DATES 
+          : MenuLevel.MANAGE_BACK_DATES;
+        showMenu(ctx);
+      } else {
+        ctx.reply('Error: La fecha no es válida o ya existe. Use el formato DD/MM/YYYY o DD/MM (ejemplo: 24/11/2025 o 24/11)')
+          .catch(error => ctx.reply(error.toString()));
+      }
+    } else if (action === 'remove') {
+      const success = removeUserDate(chatId, orientation, text);
+      if (success) {
+        ctx.reply(`Fecha ${text} eliminada correctamente.`)
+          .catch(error => ctx.reply(error.toString()));
+        userActionState[chatId] = null;
+        // Volver al menú de gestión
+        userMenuLevels[chatId] = orientation === ORIENTATION.GO 
+          ? MenuLevel.MANAGE_GO_DATES 
+          : MenuLevel.MANAGE_BACK_DATES;
+        showMenu(ctx);
+      } else {
+        ctx.reply('Error: La fecha no existe en la lista.')
+          .catch(error => ctx.reply(error.toString()));
+      }
+    }
+  } else {
+    // Default behavior for text messages
+    ctx.reply(`Hello ${(ctx?.chat as any)?.first_name}`)
+      .catch(error => ctx.reply(error.toString()));
+  }
 })
 
 bot.on('callback_query', async (ctx) => {
@@ -319,6 +481,12 @@ bot.on('callback_query', async (ctx) => {
           break;
         case MenuLevel.SUBMENU_BACK:
           handleSubmenu2Input(ctx);
+          break;
+        case MenuLevel.MANAGE_GO_DATES:
+          handleManageGoDatesInput(ctx);
+          break;
+        case MenuLevel.MANAGE_BACK_DATES:
+          handleManageBackDatesInput(ctx);
           break;
         // Add more cases for additional menu levels
       }

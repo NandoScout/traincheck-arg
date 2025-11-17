@@ -1,15 +1,11 @@
 import * as cron from 'node-cron';
-import { getAllPassages, sendServicesInfo, setSessionId } from './utils';
+import { checkAndNotifyAllUsers, setSessionId } from './utils';
 import './bot'; // Initialize bot
 
 // Function to check the website and send a message if content is found
 const checkWebsiteAndSendMessage = async () => {
   try {
-    const freeFound = await getAllPassages();
-
-    if (freeFound?.disponibilidad) {
-      sendServicesInfo(freeFound);
-    }
+    await checkAndNotifyAllUsers();
   } catch (error) {
     console.error('Error checking website:', error);
   }
